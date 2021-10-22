@@ -1,0 +1,6 @@
+---
+Language:      Cpp
+BasedOnStyle:  LLVM
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true

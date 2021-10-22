@@ -1,0 +1,15 @@
+*
+!*/
+
+
+!include/
+!examples/
+!examples/Makefile
+
+!*.h
+!*.cpp
+
+!.gitignore
+!README.md
+!LICENSE
+!.clang-format
