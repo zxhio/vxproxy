@@ -1,71 +1,69 @@
+//===- TunTap.h - Tun/Tap Device --------------------------------*- C++ -*-===//
+//
+/// \file
+/// IP address route opration with netlink and tun/tap device.
+//
+// Author:  zxh
+// Date:    2021/10/23 16:58:59
+//===----------------------------------------------------------------------===//
+
 #pragma once
 
-#include <string>
-
 #include <fcntl.h>
-#include <linux/if.h>
-#include <linux/if_tun.h>
+#include <linux/if_tun.h> // TUNSETIFF
+#include <net/if.h>
+#include <netinet/in.h>
+#include <string.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 namespace vxproxy {
 
-int tuntapAlloc(const char *name, int flags) {
-  struct ifreq ifr;
-
+static int createTunTap(int mode, const char *name) {
   int fd = open("/dev/net/tun", O_RDWR);
   if (fd < 0)
-    return fd;
+    return -1;
 
-  ifr.ifr_flags = flags;
-  std::copy(name, name + IFNAMSIZ, ifr.ifr_name);
+  struct ifreq ifr;
+  ifr.ifr_flags = mode | IFF_NO_PI;
+  memcpy(ifr.ifr_name, name, IFNAMSIZ);
 
-  int err = ioctl(fd, TUNSETIFF, (void *)&ifr);
-  if (err < 0) {
+  if (ioctl(fd, TUNSETIFF, &ifr) < 0) {
     close(fd);
-    return err;
+    return -1;
   }
 
   return fd;
 }
 
-enum TunTapType { Tun = IFF_TUN, Tap = IFF_TAP };
+static int setupTunTap(int sockfd, const char *name) {
+  struct ifreq ifr;
 
-template <TunTapType t> class TunTap {
-public:
-  TunTap(const char *name) : fd_(-1), type_(t), name_(name) {}
+  memcpy(ifr.ifr_name, name, IFNAMSIZ);
+  if (ioctl(sockfd, SIOCGIFFLAGS, &ifr) < 0)
+    return -1;
 
-  int alloc() {
-    struct ifreq ifr;
+  memcpy(ifr.ifr_name, name, IFNAMSIZ);
+  ifr.ifr_flags |= IFF_UP | IFF_RUNNING;
+  return ioctl(sockfd, SIOCSIFFLAGS, &ifr);
+}
 
-    int fd = open("/dev/net/tun", O_RDWR);
-    if (fd < 0)
-      return fd;
+static int addAddrTunTap(int sockfd, struct sockaddr_in *addr) {
+  struct ifreq ifr;
+  memcpy(&ifr.ifr_addr, addr, sizeof(struct sockaddr));
+  return ioctl(sockfd, SIOCSIFADDR, &ifr);
+}
 
-    ifr.ifr_flags = type_ | IFF_NO_PI;
-    std::copy(name_.data(), name_.data() + IFNAMSIZ, ifr.ifr_name);
+static int addRouteTunTap(int sockfd, struct sockaddr_in *addr,
+                          struct sockaddr_in *mask) {
+  int ret = addAddrTunTap(sockfd, addr);
+  if (ret < 0)
+    return -1;
 
-    int err = ioctl(fd, TUNSETIFF, (void *)&ifr);
-    if (err < 0) {
-      close(fd);
-      return err;
-    }
-
-    fd_ = fd;
-    return fd;
-  }
-
-  bool up() const { return true; }
-
-  bool down() const { return false; }
-
-private:
-  int         fd_;
-  TunTapType  type_;
-  std::string name_;
-};
-
-using TunDevice = TunTap<TunTapType::Tun>;
-using TapDevice = TunTap<TunTapType::Tap>;
+  struct ifreq ifr;
+  memcpy(&ifr.ifr_netmask, mask, sizeof(struct sockaddr));
+  return ioctl(sockfd, SIOCSIFNETMASK, ifr);
+}
 
 } // namespace vxproxy
