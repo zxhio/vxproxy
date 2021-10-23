@@ -63,7 +63,7 @@ static int addRouteTunTap(int sockfd, struct sockaddr_in *addr,
 
   struct ifreq ifr;
   memcpy(&ifr.ifr_netmask, mask, sizeof(struct sockaddr));
-  return ioctl(sockfd, SIOCSIFNETMASK, ifr);
+  return ioctl(sockfd, SIOCSIFNETMASK, &ifr);
 }
 
 } // namespace vxproxy
