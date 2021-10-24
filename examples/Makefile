@@ -1,10 +1,11 @@
 CXX = g++
-CXXFLAGS = -std=c++11 -march=native -O3 -Wall -Werror -I../include
+CXXFLAGS = -std=c++11 -march=native -O0 -g -Wall -Werror -I../include
 LDFLAGS = -static
 
 SRCS = \
 	TunTap.cpp \
-	Poll.cpp
+	Poll.cpp \
+	Route.cpp
 
 OBJS = $(patsubst %.cpp, %.o, $(SRCS))
 DEPS = $(patsubst %.cpp, %.d, $(SRCS))
