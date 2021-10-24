@@ -21,7 +21,7 @@
 namespace vxproxy {
 
 static int createTunTap(int mode, const char *name) {
-  int fd = open("/dev/net/tun", O_RDWR);
+  int fd = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
   if (fd < 0)
     return -1;
 

@@ -4,6 +4,7 @@ LDFLAGS = -static
 
 SRCS = \
 	TunTap.cpp \
+	Poll.cpp
 
 OBJS = $(patsubst %.cpp, %.o, $(SRCS))
 DEPS = $(patsubst %.cpp, %.d, $(SRCS))
