@@ -5,7 +5,8 @@ LDFLAGS = -static
 SRCS = \
 	TunTap.cpp \
 	Poll.cpp \
-	Route.cpp
+	Route.cpp \
+	Packet.cpp \
 
 OBJS = $(patsubst %.cpp, %.o, $(SRCS))
 DEPS = $(patsubst %.cpp, %.d, $(SRCS))
