@@ -57,9 +57,14 @@ public:
 
 private:
   void addEvent(int fd, int events, EventHandleFunc rf, EventHandleFunc wf) {
+    if (fd < 0)
+      return;
+
     Event ev;
     ev.pfd.fd     = fd;
     ev.pfd.events = events;
+    ev.readFunc   = NULL;
+    ev.writeFunc  = NULL;
 
     if (eventMap_.find(fd) != eventMap_.end())
       ev = eventMap_[fd];
@@ -73,6 +78,9 @@ private:
   }
 
   void delEvent(int fd, int events) {
+    if (fd < 0)
+      return;
+
     if (eventMap_.find(fd) == eventMap_.end())
       return;
 

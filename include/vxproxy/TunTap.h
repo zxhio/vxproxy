@@ -9,9 +9,11 @@
 
 #pragma once
 
+#include <arpa/inet.h>
 #include <fcntl.h>
-#include <linux/if_tun.h> // TUNSETIFF
+#include <linux/if_tun.h>
 #include <net/if.h>
+#include <net/route.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -20,7 +22,7 @@
 
 namespace vxproxy {
 
-static int createTunTap(int mode, const char *name) {
+static inline int createTunTap(int mode, const char *name) {
   int fd = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
   if (fd < 0)
     return -1;
@@ -37,7 +39,7 @@ static int createTunTap(int mode, const char *name) {
   return fd;
 }
 
-static int setupTunTap(int sockfd, const char *name) {
+static inline int setupTunTap(int sockfd, const char *name) {
   struct ifreq ifr;
 
   memcpy(ifr.ifr_name, name, IFNAMSIZ);
@@ -49,21 +51,62 @@ static int setupTunTap(int sockfd, const char *name) {
   return ioctl(sockfd, SIOCSIFFLAGS, &ifr);
 }
 
-static int addAddrTunTap(int sockfd, struct sockaddr_in *addr) {
+static inline int addAddrTunTap(int sockfd, const char *name,
+                                struct sockaddr_in *addr) {
   struct ifreq ifr;
   memcpy(&ifr.ifr_addr, addr, sizeof(struct sockaddr));
+  memcpy(&ifr.ifr_name, name, IFNAMSIZ);
   return ioctl(sockfd, SIOCSIFADDR, &ifr);
 }
 
-static int addRouteTunTap(int sockfd, struct sockaddr_in *addr,
-                          struct sockaddr_in *mask) {
-  int ret = addAddrTunTap(sockfd, addr);
+// Add address to tun/tap and set routes.
+static inline int addAddrNetmaskTunTap(int sockfd, const char *name,
+                                       struct sockaddr_in *addr,
+                                       struct sockaddr_in *mask) {
+  int ret = addAddrTunTap(sockfd, name, addr);
   if (ret < 0)
     return -1;
 
   struct ifreq ifr;
+  memcpy(&ifr.ifr_name, name, IFNAMSIZ);
   memcpy(&ifr.ifr_netmask, mask, sizeof(struct sockaddr));
   return ioctl(sockfd, SIOCSIFNETMASK, &ifr);
+}
+
+static inline int addRouteTunTap(int sockfd, const char *name,
+                                 struct sockaddr_in *addr,
+                                 struct sockaddr_in *mask,
+                                 unsigned short      flags) {
+  struct rtentry rte;
+
+  memset(&rte, 0, sizeof(struct rtentry));
+  rte.rt_dev   = (char *)name;
+  rte.rt_flags = RTF_UP | flags;
+
+  memcpy(&rte.rt_dst, addr, sizeof(struct sockaddr));
+  memcpy(&rte.rt_genmask, mask, sizeof(struct sockaddr));
+
+  return ioctl(sockfd, SIOCADDRT, &rte);
+}
+
+// Add net routes for tun/tap device.
+// Note: device must aleady up.
+static inline int addNetRouteTunTap(int sockfd, const char *name,
+                                    struct sockaddr_in *addr,
+                                    struct sockaddr_in *mask) {
+  return addRouteTunTap(sockfd, name, addr, mask, 0);
+}
+
+// Add host routes for tun/tap device name.
+// Note: device must aleady up.
+static inline int addHostRouteTunTap(int sockfd, const char *name,
+                                     struct sockaddr_in *addr) {
+  struct sockaddr_in mask;
+  mask.sin_family = AF_INET;
+  mask.sin_port   = 0;
+  inet_pton(AF_INET, "255.255.255.255", &mask.sin_addr);
+
+  return addRouteTunTap(sockfd, name, addr, &mask, RTF_HOST);
 }
 
 } // namespace vxproxy

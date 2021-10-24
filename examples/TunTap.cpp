@@ -7,6 +7,7 @@
 // Date:    2021/10/23 17:30:53
 //===----------------------------------------------------------------------===//
 
+#include <sys/socket.h>
 #include <vxproxy/Poll.h>
 #include <vxproxy/TunTap.h>
 
@@ -18,6 +19,8 @@
 #include <stdio.h>
 #include <string.h>
 
+const char *ifname = "foo";
+
 using namespace vxproxy;
 
 void readFromTunTap(int fd) {
@@ -27,7 +30,7 @@ void readFromTunTap(int fd) {
 }
 
 int main() {
-  int fd = vxproxy::createTunTap(IFF_TUN, "foo");
+  int fd = vxproxy::createTunTap(IFF_TUN, ifname);
   if (fd < 0) {
     fprintf(stderr, "Fail to add tun/tap: %s\n", strerror(errno));
     return -1;
@@ -39,34 +42,52 @@ int main() {
     return -1;
   }
 
-  int                ret = -1;
+  int ret = vxproxy::setupTunTap(sockfd, ifname);
+  if (ret < 0) {
+    fprintf(stderr, "Fail to setup tun/tap: %s\n", strerror(errno));
+    return -1;
+  }
+
   struct sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port   = 0;
+  inet_pton(AF_INET, "172.23.19.0", &addr.sin_addr);
 
-  addr.sin_family      = AF_INET;
-  addr.sin_port        = 0;
-  addr.sin_addr.s_addr = inet_addr("172.23.19.1");
-
-  ret = vxproxy::addAddrTunTap(sockfd, &addr);
+  ret = vxproxy::addAddrTunTap(sockfd, ifname, &addr);
   if (ret < 0) {
     fprintf(stderr, "Fail to add addr for tun/tap: %s\n", strerror(errno));
     return -1;
   }
 
   struct sockaddr_in mask;
-  mask.sin_family      = AF_INET;
-  mask.sin_port        = 0;
-  mask.sin_addr.s_addr = inet_addr("255.255.255.0");
+  mask.sin_family = AF_INET;
+  mask.sin_port   = 0;
+  inet_pton(AF_INET, "255.255.255.0", &mask.sin_addr);
 
   // Readd addr to tuntap (OK, no problem)
-  ret = vxproxy::addRouteTunTap(sockfd, &addr, &mask);
+  ret = vxproxy::addAddrNetmaskTunTap(sockfd, ifname, &addr, &mask);
   if (ret < 0) {
     fprintf(stderr, "Fail to add mask for tun/tap: %s\n", strerror(errno));
     return -1;
   }
 
-  ret = vxproxy::setupTunTap(sockfd, "foo");
+  // Add host route
+  addr.sin_family = AF_INET;
+  addr.sin_port   = 0;
+  inet_pton(AF_INET, "10.17.19.23", &addr.sin_addr);
+  ret = vxproxy::addHostRouteTunTap(sockfd, ifname, &addr);
   if (ret < 0) {
-    fprintf(stderr, "Fail to setup tun/tap: %s\n", strerror(errno));
+    fprintf(stderr, "Fail to set host route for tun/tap: %s\n",
+            strerror(errno));
+    return -1;
+  }
+
+  addr.sin_family = AF_INET;
+  addr.sin_port   = 0;
+  inet_pton(AF_INET, "10.179.19.0", &addr.sin_addr);
+  ret = vxproxy::addNetRouteTunTap(sockfd, ifname, &addr, &mask);
+  if (ret < 0) {
+    fprintf(stderr, "Fail to set net route for tun/tap: %s\n", strerror(errno));
     return -1;
   }
 
@@ -74,7 +95,7 @@ int main() {
   p.addReadableEvent(fd, readFromTunTap);
   p.loop();
 
-  // std::this_thread::sleep_for(std::chrono::seconds(10));
+  // std::this_thread::sleep_for(std::chrono::seconds(100));
 
   close(fd);
   close(sockfd);
