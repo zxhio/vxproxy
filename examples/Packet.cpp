@@ -72,6 +72,30 @@ void handleICMP(const char *icmpdata, size_t icmplen) {
   fprintf(stderr, "\n");
 }
 
+void reply(int fd, char *data, size_t n) {
+  char         replyBuf[1500];
+  struct iphdr iph;
+  decodeIPv4(&iph, data, n);
+
+  uint32_t saddr = iph.saddr;
+  uint32_t daddr = iph.daddr;
+  iph.daddr      = saddr;
+  iph.saddr      = daddr;
+  encodeIPv4(&iph, replyBuf, sizeof(iph));
+  memcpy(replyBuf + sizeof(iph), data + sizeof(iph),
+         lengthIPv4Header(&iph) - sizeof(iph));
+
+  struct icmphdr icmp;
+  decodeICMP(&icmp, data + lengthIPv4Header(&iph), n - lengthIPv4Header(&iph));
+  icmp.type = ICMP_ECHOREPLY;
+  encodeICMP(&icmp, replyBuf + lengthIPv4Header(&iph), sizeof(icmp));
+  memcpy(replyBuf + lengthIPv4Header(&iph) + sizeof(icmp),
+         data + lengthIPv4Header(&iph) + sizeof(icmp),
+         n - lengthIPv4Header(&iph) - sizeof(icmp));
+
+  write(fd, replyBuf, n);
+}
+
 void readTun(int fd) {
   char buf[256];
   memset(buf, 0, sizeof(buf));
@@ -93,7 +117,7 @@ void readTun(int fd) {
   inet_ntop(AF_INET, &iph.saddr, srcIP, sizeof(buf));
   inet_ntop(AF_INET, &iph.daddr, dstIP, sizeof(buf));
 
-  char          checkbuf[80];
+  char          checkbuf[100];
   struct iphdr *checkip = (struct iphdr *)checkbuf;
   memcpy(checkip, buf, n);
   checkip->check = 0;
@@ -102,8 +126,9 @@ void readTun(int fd) {
   fprintf(stderr, "=== IP Layer\n");
   printIndent(3);
   fprintf(stderr,
-          "protocol=%d, src_ip=%s, dst_ip=%s, checksum origin=0x%x recacl=0x%x",
-          iph.protocol, srcIP, dstIP, iph.check,
+          "protocol=%d, src_ip=%s, dst_ip=%s, headerlen=%zu, checksum "
+          "origin=0x%x recacl=0x%x",
+          iph.protocol, srcIP, dstIP, lengthIPv4Header(checkip), iph.check,
           checksum(checkip, lengthIPv4Header(checkip)));
   fprintf(stderr, "\n");
 
@@ -113,6 +138,7 @@ void readTun(int fd) {
     break;
   case IPPROTO_ICMP:
     handleICMP(ip.payload.data, ip.payload.len);
+    reply(fd, buf, n);
     break;
   default:;
   }

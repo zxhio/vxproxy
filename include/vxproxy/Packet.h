@@ -86,7 +86,6 @@ static inline constexpr size_t lengthEthernetHeader() {
 static inline void decodeIPv4(struct iphdr *ip, const char *data, size_t n) {
   struct iphdr *h = (struct iphdr *)data;
   memcpy(ip, h, sizeof(struct iphdr));
-  ip->ihl      = h->ihl;
   ip->tot_len  = ntohs(h->tot_len);
   ip->id       = ntohs(h->id);
   ip->frag_off = ntohs(h->frag_off);
@@ -97,16 +96,25 @@ static inline void encodeIPv4(const struct iphdr *ip, const char *data,
                               size_t n) {
   struct iphdr *h = (struct iphdr *)data;
   memcpy(h, ip, sizeof(struct iphdr));
-  h->ihl      = ip->ihl;
   h->tot_len  = htons(ip->tot_len);
   h->id       = htons(ip->id);
   h->frag_off = htons(ip->frag_off);
   h->check    = 0;
-  h->check    = checksum(h, n);
+  h->check    = htons(checksum(h, n));
 }
 
 static inline constexpr size_t lengthIPv4Header(const struct iphdr *ip) {
   return ip->ihl * 4;
+}
+
+static inline int validIPv4(const struct iphdr *ip) {
+  if (lengthIPv4Header(ip) < sizeof(struct iphdr))
+    return -1;
+  else if (ip->tot_len < sizeof(struct iphdr))
+    return -1;
+  else if (ip->tot_len < lengthIPv4Header(ip))
+    return -1;
+  return 0;
 }
 
 static inline void decodeTCP(struct tcphdr *tcp, const char *data, size_t n) {
@@ -116,7 +124,6 @@ static inline void decodeTCP(struct tcphdr *tcp, const char *data, size_t n) {
   tcp->dest    = ntohs(h->dest);
   tcp->seq     = ntohl(h->seq);
   tcp->ack_seq = ntohl(h->ack_seq);
-  tcp->doff    = h->doff;
   tcp->window  = ntohs(h->window);
   tcp->check   = ntohs(h->check);
   tcp->urg_ptr = ntohs(h->urg_ptr);
@@ -131,7 +138,6 @@ static inline void encodeTCP(const struct tcphdr *tcp, const uint32_t *saddr,
   h->dest    = htons(tcp->dest);
   h->seq     = htonl(tcp->seq);
   h->ack_seq = htonl(tcp->ack_seq);
-  h->doff    = tcp->doff;
   h->window  = htonl(tcp->window);
   h->urg_ptr = htonl(tcp->urg_ptr);
   h->check   = 0;
@@ -153,11 +159,10 @@ static inline void decodeICMP(struct icmphdr *icmp, const char *data,
 static inline void encodeICMP(const struct icmphdr *icmp, const char *data,
                               size_t n) {
   struct icmphdr *h   = (struct icmphdr *)data;
-  h->type             = ntohs(icmp->type);
-  h->un.echo.id       = ntohs(icmp->un.echo.id);
-  h->un.echo.sequence = ntohs(icmp->un.echo.sequence);
+  h->un.echo.id       = htons(icmp->un.echo.id);
+  h->un.echo.sequence = htons(icmp->un.echo.sequence);
   h->checksum         = 0;
-  h->checksum         = checksum(h, n);
+  h->checksum         = htons(checksum(h, n));
 }
 
 static inline constexpr size_t lengthICMPv4Header() {
@@ -277,12 +282,9 @@ public:
 
     decodeIPv4(&ip_, data(), len());
 
-    if (lengthIPv4Header(&ip_) < sizeof(struct iphdr))
-      return -1;
-    else if (ip_.tot_len < sizeof(struct iphdr))
-      return -1;
-    else if (ip_.tot_len < lengthIPv4Header(&ip_))
-      return -1;
+    int vaild = validIPv4(&ip_);
+    if (vaild < 0)
+      return vaild;
 
     options_ = decodeTCPIPOptions(data() + 20, headerLen() - 20);
     payload  = DataView(data() + headerLen(), len() - headerLen());
