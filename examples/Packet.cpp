@@ -16,6 +16,62 @@
 
 using namespace vxproxy;
 
+enum LayerDepth { LD_IP = 2, LD_TCP = 3, LD_ICMP = 3 };
+
+void printIndent(int w) {
+  for (int i = 1; i < w; i++)
+    fprintf(stderr, "  ");
+}
+
+void handleTCP(const char *tcpdata, size_t tcplen, const uint32_t *saddr,
+               const uint32_t *daddr) {
+  TCPPacket tcp(tcpdata, tcplen, saddr, daddr);
+  if (tcp.decode() < 0)
+    return;
+
+  struct tcphdr th = tcp.header();
+
+  char           checkbuf[80];
+  struct tcphdr *checktcp = (struct tcphdr *)checkbuf;
+  memcpy(checktcp, tcpdata, tcplen);
+  checktcp->check = 0;
+
+  printIndent(LD_TCP);
+  fprintf(stderr, "=== TCP Layer:\n");
+  printIndent(LD_TCP + 1);
+  fprintf(stderr,
+          "sport=%d, dport=%d, seq=%u, ack_seq=%u, checksum origin="
+          "0x%x recacl=0x%x, payload_len=%zu",
+          th.source, th.dest, th.seq, th.ack_seq, th.check,
+          checksumTCP(checktcp, tcplen, saddr, daddr), tcp.payload.len);
+  for (const auto &opt : tcp.options()) {
+    fprintf(stderr, "\n");
+    printIndent(LD_TCP + 1);
+    fprintf(stderr, "kind=%d, length=%d", opt.kind, opt.length);
+  }
+  fprintf(stderr, "\n");
+}
+
+void handleICMP(const char *icmpdata, size_t icmplen) {
+  ICMPPacket icmp(icmpdata, icmplen);
+  icmp.decode();
+
+  struct icmphdr ih = icmp.header();
+
+  char            checkbuf[80];
+  struct icmphdr *checkicmp = (struct icmphdr *)checkbuf;
+  memcpy(checkicmp, icmpdata, icmplen);
+  checkicmp->checksum = 0;
+
+  printIndent(LD_ICMP);
+  fprintf(stderr, "=== ICMP Layer:\n");
+  printIndent(LD_ICMP + 1);
+  fprintf(stderr, "id=%d, seq=%d, checksum origin=0x%x recacl=0x%x",
+          ih.un.echo.id, ih.un.echo.sequence, ih.checksum,
+          checksum(checkicmp, icmplen));
+  fprintf(stderr, "\n");
+}
+
 void readTun(int fd) {
   char buf[256];
   memset(buf, 0, sizeof(buf));
@@ -26,18 +82,40 @@ void readTun(int fd) {
     return;
   }
 
-  IPv4 ip(buf, n);
-  ip.decode();
-  struct iphdr h = ip.header();
+  IPv4Packet ip(buf, n);
+  if (ip.decode() < 0)
+    return;
 
-  DataView pl = ip.payload();
-  TCP      tcp(pl.data, pl.len);
-  tcp.decode();
+  char srcIP[32];
+  char dstIP[32];
 
-  inet_ntop(AF_INET, &h.saddr, buf, sizeof(buf));
-  fprintf(stderr, "src: <%s: %d> ", buf, tcp.header().source);
-  inet_ntop(AF_INET, &h.daddr, buf, sizeof(buf));
-  fprintf(stderr, "dst: <%s: %d>\n", buf, tcp.header().dest);
+  struct iphdr iph = ip.header();
+  inet_ntop(AF_INET, &iph.saddr, srcIP, sizeof(buf));
+  inet_ntop(AF_INET, &iph.daddr, dstIP, sizeof(buf));
+
+  char          checkbuf[80];
+  struct iphdr *checkip = (struct iphdr *)checkbuf;
+  memcpy(checkip, buf, n);
+  checkip->check = 0;
+
+  printIndent(2);
+  fprintf(stderr, "=== IP Layer\n");
+  printIndent(3);
+  fprintf(stderr,
+          "protocol=%d, src_ip=%s, dst_ip=%s, checksum origin=0x%x recacl=0x%x",
+          iph.protocol, srcIP, dstIP, iph.check,
+          checksum(checkip, lengthIPv4Header(checkip)));
+  fprintf(stderr, "\n");
+
+  switch (iph.protocol) {
+  case IPPROTO_TCP:
+    handleTCP(ip.payload.data, ip.payload.len, &iph.saddr, &iph.daddr);
+    break;
+  case IPPROTO_ICMP:
+    handleICMP(ip.payload.data, ip.payload.len);
+    break;
+  default:;
+  }
 }
 
 int main() {
