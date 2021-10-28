@@ -7,6 +7,7 @@ SRCS = \
 	Poll.cpp \
 	Route.cpp \
 	Packet.cpp \
+	Vxlan.cpp \
 
 OBJS = $(patsubst %.cpp, %.o, $(SRCS))
 DEPS = $(patsubst %.cpp, %.d, $(SRCS))

@@ -75,7 +75,7 @@ void handleICMP(const char *icmpdata, size_t icmplen) {
 void reply(int fd, char *data, size_t n) {
   char         replyBuf[1500];
   struct iphdr iph;
-  decodeIPv4(&iph, data, n);
+  decodeIPv4(&iph, data);
 
   uint32_t saddr = iph.saddr;
   uint32_t daddr = iph.daddr;
@@ -86,7 +86,7 @@ void reply(int fd, char *data, size_t n) {
          lengthIPv4Header(&iph) - sizeof(iph));
 
   struct icmphdr icmp;
-  decodeICMP(&icmp, data + lengthIPv4Header(&iph), n - lengthIPv4Header(&iph));
+  decodeICMP(&icmp, data + lengthIPv4Header(&iph));
   icmp.type = ICMP_ECHOREPLY;
   encodeICMP(&icmp, replyBuf + lengthIPv4Header(&iph), sizeof(icmp));
   memcpy(replyBuf + lengthIPv4Header(&iph) + sizeof(icmp),

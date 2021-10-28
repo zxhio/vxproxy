@@ -14,6 +14,7 @@
 
 #include <arpa/inet.h>
 #include <net/ethernet.h>
+#include <net/if_arp.h>
 #include <netinet/if_ether.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>
@@ -63,16 +64,14 @@ static inline uint16_t checksumTCP(const void *tcph, size_t n,
   return checksum(tcph, n, sum(pseudo, sizeof(pseudo), 0));
 }
 
-static inline void decodeEthernet(struct ether_header *eth, const char *data,
-                                  size_t n) {
+static inline void decodeEthernet(struct ether_header *eth, const char *data) {
   struct ether_header *h = (struct ether_header *)data;
   memcpy(eth->ether_dhost, h->ether_dhost, ETH_ALEN);
   memcpy(eth->ether_shost, h->ether_shost, ETH_ALEN);
-  eth->ether_type = ntohs(*(uint16_t *)(h + ETH_ALEN * 2));
+  eth->ether_type = ntohs(h->ether_type);
 }
 
-static inline void encodeEthernet(const struct ether_header *eth, char *data,
-                                  size_t n) {
+static inline void encodeEthernet(const struct ether_header *eth, char *data) {
   struct ether_header *h = (struct ether_header *)data;
   memcpy(h->ether_dhost, eth->ether_dhost, ETH_ALEN);
   memcpy(h->ether_shost, eth->ether_shost, ETH_ALEN);
@@ -83,7 +82,25 @@ static inline constexpr size_t lengthEthernetHeader() {
   return sizeof(struct ether_header);
 }
 
-static inline void decodeIPv4(struct iphdr *ip, const char *data, size_t n) {
+static inline void decodeARP(struct ether_arp *arp, const char *data) {
+  struct ether_arp *h = (struct ether_arp *)data;
+  memcpy(arp, h, sizeof(struct ether_arp));
+  arp->ea_hdr.ar_hrd = ntohs(h->ea_hdr.ar_hrd);
+  arp->ea_hdr.ar_pro = ntohs(h->ea_hdr.ar_pro);
+  arp->ea_hdr.ar_op  = ntohs(h->ea_hdr.ar_op);
+}
+
+static inline void encodeARP(const struct ether_arp *arp, char *data) {
+  struct ether_arp *h = (struct ether_arp *)data;
+  memcpy(h, arp, sizeof(struct ether_arp));
+  h->ea_hdr.ar_hrd = htons(arp->ea_hdr.ar_hrd);
+  h->ea_hdr.ar_pro = htons(arp->ea_hdr.ar_pro);
+  h->ea_hdr.ar_op  = htons(arp->ea_hdr.ar_op);
+}
+
+static inline constexpr size_t lengthARP() { return sizeof(struct ether_arp); }
+
+static inline void decodeIPv4(struct iphdr *ip, const char *data) {
   struct iphdr *h = (struct iphdr *)data;
   memcpy(ip, h, sizeof(struct iphdr));
   ip->tot_len  = ntohs(h->tot_len);
@@ -92,8 +109,7 @@ static inline void decodeIPv4(struct iphdr *ip, const char *data, size_t n) {
   ip->check    = ntohs(h->check);
 }
 
-static inline void encodeIPv4(const struct iphdr *ip, const char *data,
-                              size_t n) {
+static inline void encodeIPv4(const struct iphdr *ip, char *data, size_t n) {
   struct iphdr *h = (struct iphdr *)data;
   memcpy(h, ip, sizeof(struct iphdr));
   h->tot_len  = htons(ip->tot_len);
@@ -117,7 +133,7 @@ static inline int validIPv4(const struct iphdr *ip) {
   return 0;
 }
 
-static inline void decodeTCP(struct tcphdr *tcp, const char *data, size_t n) {
+static inline void decodeTCP(struct tcphdr *tcp, const char *data) {
   struct tcphdr *h = (struct tcphdr *)data;
   memcpy(tcp, h, sizeof(struct tcphdr));
   tcp->source  = ntohs(h->source);
@@ -148,9 +164,10 @@ static inline size_t lengthTCPHeader(const struct tcphdr *tcp) {
   return tcp->doff * 4;
 }
 
-static inline void decodeICMP(struct icmphdr *icmp, const char *data,
-                              size_t n) {
+static inline void decodeICMP(struct icmphdr *icmp, const char *data) {
   struct icmphdr *h      = (struct icmphdr *)data;
+  icmp->type             = h->type;
+  icmp->code             = h->code;
   icmp->checksum         = ntohs(h->checksum);
   icmp->un.echo.id       = ntohs(h->un.echo.id);
   icmp->un.echo.sequence = ntohs(h->un.echo.sequence);
@@ -159,6 +176,8 @@ static inline void decodeICMP(struct icmphdr *icmp, const char *data,
 static inline void encodeICMP(const struct icmphdr *icmp, const char *data,
                               size_t n) {
   struct icmphdr *h   = (struct icmphdr *)data;
+  h->type             = h->type;
+  h->code             = h->code;
   h->un.echo.id       = htons(icmp->un.echo.id);
   h->un.echo.sequence = htons(icmp->un.echo.sequence);
   h->checksum         = 0;
@@ -241,7 +260,7 @@ public:
     if (len < sizeof(struct ether_header))
       return -1;
 
-    encodeEthernet(&eth_, to, len);
+    encodeEthernet(&eth_, to);
 
     return 0;
   };
@@ -250,7 +269,7 @@ public:
     if (len() < sizeof(struct ether_header))
       return -1;
 
-    decodeEthernet(&eth_, data(), len());
+    decodeEthernet(&eth_, data());
 
     payload = DataView(data() + headerLen(), len() - headerLen());
 
@@ -280,7 +299,8 @@ public:
     if (len() < sizeof(struct iphdr))
       return -1;
 
-    decodeIPv4(&ip_, data(), len());
+    // TODO, check len
+    decodeIPv4(&ip_, data());
 
     int vaild = validIPv4(&ip_);
     if (vaild < 0)
@@ -320,7 +340,8 @@ public:
     if (len() < sizeof(struct tcphdr))
       return -1;
 
-    decodeTCP(&tcp_, data(), len());
+    // TODO, check len
+    decodeTCP(&tcp_, data());
 
     options_ = decodeTCPIPOptions(data() + 20, headerLen() - 20);
     payload  = DataView(data() + headerLen(), len() - headerLen());
@@ -360,7 +381,8 @@ public:
     if (len() < 8)
       return -1;
 
-    decodeICMP(&icmp_, data(), len());
+    // TODO, check len
+    decodeICMP(&icmp_, data());
 
     payload = DataView(data() + headerLen(), len() - headerLen());
 
