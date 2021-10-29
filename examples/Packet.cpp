@@ -83,15 +83,15 @@ void reply(int fd, char *data, size_t n) {
   iph.saddr      = daddr;
   encodeIPv4(&iph, replyBuf, sizeof(iph));
   memcpy(replyBuf + sizeof(iph), data + sizeof(iph),
-         lengthIPv4Header(&iph) - sizeof(iph));
+         lenIPv4Hdr(&iph) - sizeof(iph));
 
   struct icmphdr icmp;
-  decodeICMP(&icmp, data + lengthIPv4Header(&iph));
+  decodeICMP(&icmp, data + lenIPv4Hdr(&iph));
   icmp.type = ICMP_ECHOREPLY;
-  encodeICMP(&icmp, replyBuf + lengthIPv4Header(&iph), sizeof(icmp));
-  memcpy(replyBuf + lengthIPv4Header(&iph) + sizeof(icmp),
-         data + lengthIPv4Header(&iph) + sizeof(icmp),
-         n - lengthIPv4Header(&iph) - sizeof(icmp));
+  encodeICMP(&icmp, replyBuf + lenIPv4Hdr(&iph), sizeof(icmp));
+  memcpy(replyBuf + lenIPv4Hdr(&iph) + sizeof(icmp),
+         data + lenIPv4Hdr(&iph) + sizeof(icmp),
+         n - lenIPv4Hdr(&iph) - sizeof(icmp));
 
   write(fd, replyBuf, n);
 }
@@ -128,8 +128,8 @@ void readTun(int fd) {
   fprintf(stderr,
           "protocol=%d, src_ip=%s, dst_ip=%s, headerlen=%zu, checksum "
           "origin=0x%x recacl=0x%x",
-          iph.protocol, srcIP, dstIP, lengthIPv4Header(checkip), iph.check,
-          checksum(checkip, lengthIPv4Header(checkip)));
+          iph.protocol, srcIP, dstIP, lenIPv4Hdr(checkip), iph.check,
+          checksum(checkip, lenIPv4Hdr(checkip)));
   fprintf(stderr, "\n");
 
   switch (iph.protocol) {

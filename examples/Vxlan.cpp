@@ -93,7 +93,7 @@ void printIP(const struct iphdr *ip) {
 
   fprintf(stderr,
           "protocol=%d, src_ip=%s, dst_ip=%s, headerlen=%zu, checksum=0x%x",
-          ip->protocol, srcIP, dstIP, lengthIPv4Header(ip), ip->check);
+          ip->protocol, srcIP, dstIP, lenIPv4Hdr(ip), ip->check);
   fprintf(stderr, "\n");
 }
 
@@ -141,34 +141,31 @@ void replyARP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
 void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
                const struct ether_header *eth, const struct iphdr *ip,
                const struct icmphdr *icmp, DataView payload) {
-  char replyBuf[1500];
+  char   replyBuf[1500];
+  size_t len = 0;
 
   struct vxlanhdr vxlan1 = *vxlan;
   encodeVxlan(&vxlan1, replyBuf);
+  len += lenVxlanHdr();
 
   struct ether_header eth1;
   eth1.ether_type = ETHERTYPE_IP;
   memcpy(eth1.ether_shost, hwAddr, ETH_ALEN);
   memcpy(eth1.ether_dhost, eth->ether_shost, ETH_ALEN);
-  encodeEthernet(&eth1, replyBuf + sizeof(vxlan1));
+  encodeEthernet(&eth1, replyBuf + len);
+  len += lenEthernetHdr();
 
   struct iphdr ip1 = *ip;
   ip1.daddr        = ip->saddr;
   ip1.saddr        = ip->daddr;
-  encodeIPv4(&ip1, replyBuf + sizeof(vxlan1) + sizeof(eth1),
-             lengthIPv4Header(&ip1));
+  encodeIPv4(&ip1, replyBuf + len, lenIPv4Hdr(ip));
+  len += lenIPv4Hdr(ip);
 
-  memcpy(replyBuf + sizeof(vxlan1) + sizeof(eth1) + lengthIPv4Header(&ip1) +
-             lengthICMPv4Header(),
-         payload.data, payload.len);
   struct icmphdr icmp1 = *icmp;
   icmp1.type           = ICMP_ECHOREPLY;
-  // fprintf(stderr, "icmp code: %d, %zu\n", icmp1.code,
-  // lengthIPv4Header(&ip1));
-  encodeICMP(&icmp1,
-             replyBuf + sizeof(vxlan1) + sizeof(eth1) + lengthIPv4Header(&ip1),
-             sizeof(vxlan1) + sizeof(eth1) + lengthIPv4Header(&ip1) +
-                 lengthICMPv4Header() + payload.len);
+  memcpy(replyBuf + len + sizeof(icmp1), payload.data, payload.len);
+  fprintf(stderr, "icmp code: %d, %zu\n", icmp1.code, lenIPv4Hdr(&ip1));
+  encodeICMP(&icmp1, replyBuf + len, lenICMPHdr() + payload.len);
 
   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
@@ -178,8 +175,8 @@ void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
 
   addr->sin_port = htons(4789);
   sendto(sockfd, replyBuf,
-         sizeof(vxlan1) + sizeof(eth1) + lengthIPv4Header(&ip1) +
-             lengthICMPv4Header() + payload.len,
+         sizeof(vxlan1) + sizeof(eth1) + lenIPv4Hdr(&ip1) + lenICMPHdr() +
+             payload.len,
          0, (struct sockaddr *)addr, sizeof(struct sockaddr));
 }
 
@@ -199,35 +196,36 @@ void handleVxlan(int fd) {
 
   fprintf(stderr, "New connection addr=%s\n", showaddr);
 
+  size_t          l = 0;
   struct vxlanhdr vxlan;
   decodeVxlan(&vxlan, buf);
+  l += lenVxlanHdr();
   printVxlan(&vxlan);
 
   struct ether_header eth;
   decodeEthernet(&eth, buf + sizeof(vxlan));
+  l += lenEthernetHdr();
   printEthernet(&eth);
 
   if (eth.ether_type == ETHERTYPE_ARP) {
     struct ether_arp arp;
     decodeARP(&arp, buf + sizeof(vxlan) + sizeof(eth));
+    l += lenARP();
     printARP(&arp);
 
     replyARP(&raddr, &vxlan, &eth, &arp);
   } else if (eth.ether_type == ETHERTYPE_IP) {
     struct iphdr ip;
     decodeIPv4(&ip, buf + sizeof(vxlan) + sizeof(eth));
+    l += lenIPv4Hdr(&ip);
     printIP(&ip);
 
     if (ip.protocol == IPPROTO_ICMP) {
       struct icmphdr icmp;
-      decodeICMP(&icmp,
-                 buf + sizeof(vxlan) + sizeof(eth) + lengthIPv4Header(&ip));
+      decodeICMP(&icmp, buf + sizeof(vxlan) + sizeof(eth) + lenIPv4Hdr(&ip));
+      l += lenICMPHdr();
       printICMP(&icmp);
-      replyICMP(&raddr, &vxlan, &eth, &ip, &icmp,
-                DataView(buf + sizeof(vxlan) + sizeof(eth) +
-                             lengthIPv4Header(&ip) + lengthICMPv4Header(),
-                         n - (sizeof(vxlan) + sizeof(eth) +
-                              lengthIPv4Header(&ip) + lengthICMPv4Header())));
+      replyICMP(&raddr, &vxlan, &eth, &ip, &icmp, DataView(buf + l, n - l));
     }
   }
 

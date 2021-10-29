@@ -49,4 +49,6 @@ static inline void encodeVxlan(const struct vxlanhdr *vxlan, char *data) {
   *(data + 6)       = id[3];
 }
 
+static inline size_t lenVxlanHdr() { return sizeof(vxlanhdr); }
+
 } // namespace vxproxy

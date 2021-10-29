@@ -78,7 +78,7 @@ static inline void encodeEthernet(const struct ether_header *eth, char *data) {
   h->ether_type = htons(eth->ether_type);
 }
 
-static inline constexpr size_t lengthEthernetHeader() {
+static inline constexpr size_t lenEthernetHdr() {
   return sizeof(struct ether_header);
 }
 
@@ -98,7 +98,7 @@ static inline void encodeARP(const struct ether_arp *arp, char *data) {
   h->ea_hdr.ar_op  = htons(arp->ea_hdr.ar_op);
 }
 
-static inline constexpr size_t lengthARP() { return sizeof(struct ether_arp); }
+static inline constexpr size_t lenARP() { return sizeof(struct ether_arp); }
 
 static inline void decodeIPv4(struct iphdr *ip, const char *data) {
   struct iphdr *h = (struct iphdr *)data;
@@ -119,16 +119,16 @@ static inline void encodeIPv4(const struct iphdr *ip, char *data, size_t n) {
   h->check    = htons(checksum(h, n));
 }
 
-static inline constexpr size_t lengthIPv4Header(const struct iphdr *ip) {
+static inline constexpr size_t lenIPv4Hdr(const struct iphdr *ip) {
   return ip->ihl * 4;
 }
 
 static inline int validIPv4(const struct iphdr *ip) {
-  if (lengthIPv4Header(ip) < sizeof(struct iphdr))
+  if (lenIPv4Hdr(ip) < sizeof(struct iphdr))
     return -1;
   else if (ip->tot_len < sizeof(struct iphdr))
     return -1;
-  else if (ip->tot_len < lengthIPv4Header(ip))
+  else if (ip->tot_len < lenIPv4Hdr(ip))
     return -1;
   return 0;
 }
@@ -160,7 +160,7 @@ static inline void encodeTCP(const struct tcphdr *tcp, const uint32_t *saddr,
   h->check   = htons(checksumTCP(tcp, n, saddr, daddr));
 }
 
-static inline size_t lengthTCPHeader(const struct tcphdr *tcp) {
+static inline size_t lenTCPHdr(const struct tcphdr *tcp) {
   return tcp->doff * 4;
 }
 
@@ -176,17 +176,15 @@ static inline void decodeICMP(struct icmphdr *icmp, const char *data) {
 static inline void encodeICMP(const struct icmphdr *icmp, const char *data,
                               size_t n) {
   struct icmphdr *h   = (struct icmphdr *)data;
-  h->type             = h->type;
-  h->code             = h->code;
+  h->type             = icmp->type;
+  h->code             = icmp->code;
   h->un.echo.id       = htons(icmp->un.echo.id);
   h->un.echo.sequence = htons(icmp->un.echo.sequence);
   h->checksum         = 0;
   h->checksum         = htons(checksum(h, n));
 }
 
-static inline constexpr size_t lengthICMPv4Header() {
-  return sizeof(struct icmphdr);
-}
+static inline constexpr size_t lenICMPHdr() { return sizeof(struct icmphdr); }
 
 struct DataView {
   DataView() : DataView(NULL, 0) {}
@@ -276,7 +274,7 @@ public:
     return 0;
   }
 
-  virtual size_t headerLen() const { return lengthEthernetHeader(); }
+  virtual size_t headerLen() const { return lenEthernetHdr(); }
 
   struct ether_header header() const {
     return eth_;
@@ -312,7 +310,7 @@ public:
     return 0;
   }
 
-  virtual size_t headerLen() const { return lengthIPv4Header(&ip_); }
+  virtual size_t headerLen() const { return lenIPv4Hdr(&ip_); }
 
   struct iphdr header() const {
     return ip_;
@@ -349,7 +347,7 @@ public:
     return 0;
   }
 
-  virtual size_t headerLen() const { return lengthTCPHeader(&tcp_); }
+  virtual size_t headerLen() const { return lenTCPHdr(&tcp_); }
 
   struct tcphdr header() const {
     return tcp_;
@@ -393,7 +391,7 @@ public:
     return icmp_;
   }
 
-  virtual size_t headerLen() const { return lengthICMPv4Header(); }
+  virtual size_t headerLen() const { return lenICMPHdr(); }
 
 private:
   struct icmphdr icmp_;
