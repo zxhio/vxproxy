@@ -20,6 +20,8 @@
 
 using namespace vxproxy;
 
+int rawFd = -1;
+
 enum LayerDepth {
   LD_VXLAN = 0,
   LD_ETH   = 1,
@@ -106,6 +108,18 @@ void printICMP(const struct icmphdr *icmp) {
   fprintf(stderr, "\n");
 }
 
+void printTCP(const struct tcphdr *tcp) {
+  printIndent(LD_TCP);
+  fprintf(stderr, "=== TCP Layer:\n");
+  printIndent(LD_TCP + 1);
+  fprintf(stderr,
+          "src_port=%d, dst_port=%d, seq=%u, ack_seq=%u, headerlen=%zu, "
+          "syn=%d, ack=%d, fin=%d, rst=%d, psh=%d, check=%d\n",
+          tcp->source, tcp->dest, tcp->seq, tcp->ack_seq, lenTCPHdr(tcp),
+          tcp->syn, tcp->ack, tcp->fin, tcp->rst, tcp->psh, tcp->check);
+  fprintf(stderr, "\n");
+}
+
 void replyARP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
               const struct ether_header *eth, const struct ether_arp *arp) {
   char replyBuf[1500];
@@ -164,8 +178,8 @@ void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
   struct icmphdr icmp1 = *icmp;
   icmp1.type           = ICMP_ECHOREPLY;
   memcpy(replyBuf + len + sizeof(icmp1), payload.data, payload.len);
-  fprintf(stderr, "icmp code: %d, %zu\n", icmp1.code, lenIPv4Hdr(&ip1));
   encodeICMP(&icmp1, replyBuf + len, lenICMPHdr() + payload.len);
+  len += lenICMPHdr() + payload.len;
 
   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
@@ -174,10 +188,40 @@ void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
   }
 
   addr->sin_port = htons(4789);
-  sendto(sockfd, replyBuf,
-         sizeof(vxlan1) + sizeof(eth1) + lenIPv4Hdr(&ip1) + lenICMPHdr() +
-             payload.len,
-         0, (struct sockaddr *)addr, sizeof(struct sockaddr));
+  sendto(sockfd, replyBuf, len, 0, (struct sockaddr *)addr,
+         sizeof(struct sockaddr));
+}
+
+void forwardTCP(struct sockaddr_in *addr, const struct iphdr *ip,
+                const struct tcphdr *tcp, DataView payload) {
+
+  char   replyBuf[1500];
+  size_t len = 0;
+
+  struct iphdr ip1 = *ip;
+  // inet_pton(AF_INET, "172.23.19.3", &ip1.saddr);
+  inet_pton(AF_INET, "192.168.31.150", &ip1.daddr);
+  encodeIPv4(&ip1, replyBuf, lenIPv4Hdr(&ip1));
+  len += lenIPv4Hdr(&ip1);
+
+  struct tcphdr *tcp1 = (struct tcphdr *)(replyBuf + len);
+  *tcp1               = *tcp;
+  memcpy(replyBuf + len + sizeof(struct tcphdr), payload.data, payload.len);
+  encodeTCP(tcp1, &ip1.saddr, &ip1.daddr, replyBuf + len,
+            sizeof(struct tcphdr) + payload.len);
+  // encodeTCP(&tcp1, &ip1.saddr, &ip1.daddr, replyBuf, lenTCPHdr(&tcp1));
+  len += sizeof(struct tcphdr) + payload.len;
+
+  struct sockaddr_in sin;
+  memset(&sin, 0, sizeof(sin));
+  sin.sin_family      = AF_INET;
+  sin.sin_addr.s_addr = ip1.daddr;
+  sin.sin_port        = tcp1->dest;
+
+  fprintf(stderr, "len: %zu\n", len);
+
+  if (sendto(rawFd, replyBuf, len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+    fprintf(stderr, "Fail to sendto raw socket: %s\n", strerror(errno));
 }
 
 void handleVxlan(int fd) {
@@ -222,10 +266,16 @@ void handleVxlan(int fd) {
 
     if (ip.protocol == IPPROTO_ICMP) {
       struct icmphdr icmp;
-      decodeICMP(&icmp, buf + sizeof(vxlan) + sizeof(eth) + lenIPv4Hdr(&ip));
+      decodeICMP(&icmp, buf + l);
       l += lenICMPHdr();
       printICMP(&icmp);
       replyICMP(&raddr, &vxlan, &eth, &ip, &icmp, DataView(buf + l, n - l));
+    } else if (ip.protocol == IPPROTO_TCP) {
+      struct tcphdr tcp;
+      decodeTCP(&tcp, buf + l);
+      l += sizeof(tcp);
+      printTCP(&tcp);
+      forwardTCP(&raddr, &ip, &tcp, DataView(buf + l, n - l));
     }
   }
 
@@ -247,6 +297,18 @@ int main() {
 
   if (bind(sockfd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
     fprintf(stderr, "Fail to bind: %s\n", strerror(errno));
+    return -1;
+  }
+
+  rawFd = socket(AF_INET, SOCK_RAW, htons(ETH_P_IP));
+  if (rawFd < 0) {
+    fprintf(stderr, "Fail to socket raw: %s\n", strerror(errno));
+    return -1;
+  }
+
+  int val = 1;
+  if (setsockopt(rawFd, IPPROTO_IP, IP_HDRINCL, &val, sizeof(val)) < 0) {
+    fprintf(stderr, "Fail to setsockopt: %s\n", strerror(errno));
     return -1;
   }
 
