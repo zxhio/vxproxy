@@ -154,8 +154,8 @@ static inline void encodeTCP(const struct tcphdr *tcp, const uint32_t *saddr,
   h->dest    = htons(tcp->dest);
   h->seq     = htonl(tcp->seq);
   h->ack_seq = htonl(tcp->ack_seq);
-  h->window  = htonl(tcp->window);
-  h->urg_ptr = htonl(tcp->urg_ptr);
+  h->window  = htons(tcp->window);
+  h->urg_ptr = htons(tcp->urg_ptr);
   h->check   = 0;
   h->check   = htons(checksumTCP(tcp, n, saddr, daddr));
 }
