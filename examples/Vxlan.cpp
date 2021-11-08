@@ -9,7 +9,11 @@
 
 #include <vxproxy/Packet.h>
 #include <vxproxy/Poll.h>
+#include <vxproxy/Route.h>
 #include <vxproxy/Vxlan.h>
+
+#include <map>
+#include <thread>
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -32,6 +36,40 @@ enum LayerDepth {
 };
 
 char hwAddr[ETH_ALEN] = {52, 54, 0, 4, 65, 14};
+
+struct TcpSession {
+  char     smac[ETH_ALEN];
+  char     dmac[ETH_ALEN];
+  uint16_t sport;
+  uint16_t dport;
+  uint32_t sip;
+  uint32_t dip;
+  uint16_t vxlan_port;
+  uint32_t vxlan_ip;
+};
+
+struct TcpTuple {
+  uint16_t sport;
+  uint16_t dport;
+  uint32_t sip;
+  uint32_t dip;
+};
+
+struct TCPCmp {
+  bool operator()(const TcpTuple &lhs, const TcpTuple &rhs) const {
+    if (lhs.dip < rhs.dip)
+      return true;
+    if (lhs.sip < rhs.sip)
+      return true;
+    if (lhs.sport < rhs.sport)
+      return true;
+    if (lhs.dport < rhs.dport)
+      return true;
+    return false;
+  }
+};
+
+std::map<TcpTuple, TcpSession, TCPCmp> sessions;
 
 void printIndent(int w) {
   for (int i = 0; i < w; i++)
@@ -94,8 +132,9 @@ void printIP(const struct iphdr *ip) {
   inet_ntop(AF_INET, &ip->daddr, dstIP, sizeof(dstIP));
 
   fprintf(stderr,
-          "protocol=%d, src_ip=%s, dst_ip=%s, headerlen=%zu, checksum=0x%x",
-          ip->protocol, srcIP, dstIP, lenIPv4Hdr(ip), ip->check);
+          "protocol=%d, src_ip=%s, dst_ip=%s, headerlen=%zu, total_len=%d "
+          "checksum=0x%x",
+          ip->protocol, srcIP, dstIP, lenIPv4Hdr(ip), ip->tot_len, ip->check);
   fprintf(stderr, "\n");
 }
 
@@ -114,7 +153,7 @@ void printTCP(const struct tcphdr *tcp) {
   printIndent(LD_TCP + 1);
   fprintf(stderr,
           "src_port=%d, dst_port=%d, seq=%u, ack_seq=%u, headerlen=%zu, "
-          "syn=%d, ack=%d, fin=%d, rst=%d, psh=%d, check=%d\n",
+          "syn=%d, ack=%d, fin=%d, rst=%d, psh=%d, check=%0x\n",
           tcp->source, tcp->dest, tcp->seq, tcp->ack_seq, lenTCPHdr(tcp),
           tcp->syn, tcp->ack, tcp->fin, tcp->rst, tcp->psh, tcp->check);
   fprintf(stderr, "\n");
@@ -192,24 +231,71 @@ void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
          sizeof(struct sockaddr));
 }
 
-void forwardTCP(struct sockaddr_in *addr, const struct iphdr *ip,
-                const struct tcphdr *tcp, DataView payload) {
+void set_tcp_mss(struct tcphdr *tcph, uint32_t pkt_max) {
+  uint32_t optlen, i;
+  uint8_t *op;
+  uint16_t newmss;
 
-  char   replyBuf[1500];
+  if (!tcph->syn) {
+    return;
+  }
+
+  optlen = lenTCPHdr(tcph) - sizeof(struct tcphdr);
+  if (!optlen || (optlen > pkt_max - sizeof(struct tcphdr))) {
+    return;
+  }
+
+  op = ((uint8_t *)tcph + sizeof(struct tcphdr));
+  for (i = 0; i < optlen;) {
+    if ((op[i] == 2) && ((optlen - i) >= 4) && (op[i + 1] == 4) &&
+        (i + 3 < pkt_max - sizeof(struct tcphdr))) {
+      uint16_t mssval;
+
+      mssval = (op[i + 2] << 8) | op[i + 3];
+
+      if (mssval > 1380)
+        newmss = htons(1380);
+      else
+        return;
+
+      op[i + 2] = newmss & 0xFF;
+      op[i + 3] = (newmss & 0xFF00) >> 8;
+
+      return;
+    }
+
+    if (op[i] < 2) {
+      i++;
+    } else {
+      i += op[i + 1] ?: 1;
+    }
+  }
+
+  return;
+}
+
+void forwardTCP(TcpSession *sess, struct sockaddr_in *addr,
+                const struct iphdr *ip, const struct tcphdr *tcp,
+                DataView payload) {
+
+  char   replyBuf[1600];
   size_t len = 0;
 
   struct iphdr ip1 = *ip;
-  // inet_pton(AF_INET, "172.23.19.3", &ip1.saddr);
-  inet_pton(AF_INET, "192.168.31.150", &ip1.daddr);
+  // 10.0.0.3, source address.
+  // inet_pton(AF_INET, "172.13.11.2", &ip1.saddr);
+
+  // 172.17.0.2:80, nginx server address.
+  inet_pton(AF_INET, "192.168.31.55", &ip1.daddr);
   encodeIPv4(&ip1, replyBuf, lenIPv4Hdr(&ip1));
   len += lenIPv4Hdr(&ip1);
 
   struct tcphdr *tcp1 = (struct tcphdr *)(replyBuf + len);
   *tcp1               = *tcp;
   memcpy(replyBuf + len + sizeof(struct tcphdr), payload.data, payload.len);
+  set_tcp_mss(tcp1, sizeof(struct tcphdr) + payload.len);
   encodeTCP(tcp1, &ip1.saddr, &ip1.daddr, replyBuf + len,
             sizeof(struct tcphdr) + payload.len);
-  // encodeTCP(&tcp1, &ip1.saddr, &ip1.daddr, replyBuf, lenTCPHdr(&tcp1));
   len += sizeof(struct tcphdr) + payload.len;
 
   struct sockaddr_in sin;
@@ -218,10 +304,27 @@ void forwardTCP(struct sockaddr_in *addr, const struct iphdr *ip,
   sin.sin_addr.s_addr = ip1.daddr;
   sin.sin_port        = tcp1->dest;
 
-  fprintf(stderr, "len: %zu\n", len);
-
-  if (sendto(rawFd, replyBuf, len, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+  if (sendto(rawFd, replyBuf, len, 0, (struct sockaddr *)&sin, sizeof(sin)) <
+      0) {
     fprintf(stderr, "Fail to sendto raw socket: %s\n", strerror(errno));
+    return;
+  }
+
+  TcpTuple tp;
+  tp.dip   = ip1.daddr;
+  tp.sip   = ip1.saddr;
+  tp.dport = tcp->dest;
+  tp.sport = tcp->source;
+
+  // char srcIP[32];
+  // char dstIP[32];
+  // inet_ntop(AF_INET, &tp.sip, srcIP, sizeof(srcIP));
+  // inet_ntop(AF_INET, &tp.dip, dstIP, sizeof(dstIP));
+  // fprintf(stderr, "dip=%s dport=%d sip=%s sport=%d\n", dstIP, tp.dport,
+  // srcIP,
+  //         tp.sport);
+
+  sessions[tp] = *sess;
 }
 
 void handleVxlan(int fd) {
@@ -244,42 +347,132 @@ void handleVxlan(int fd) {
   struct vxlanhdr vxlan;
   decodeVxlan(&vxlan, buf);
   l += lenVxlanHdr();
-  printVxlan(&vxlan);
+  // printVxlan(&vxlan);
 
   struct ether_header eth;
   decodeEthernet(&eth, buf + sizeof(vxlan));
   l += lenEthernetHdr();
-  printEthernet(&eth);
+  // printEthernet(&eth);
 
   if (eth.ether_type == ETHERTYPE_ARP) {
     struct ether_arp arp;
     decodeARP(&arp, buf + sizeof(vxlan) + sizeof(eth));
     l += lenARP();
-    printARP(&arp);
+    // printARP(&arp);
 
     replyARP(&raddr, &vxlan, &eth, &arp);
   } else if (eth.ether_type == ETHERTYPE_IP) {
     struct iphdr ip;
     decodeIPv4(&ip, buf + sizeof(vxlan) + sizeof(eth));
     l += lenIPv4Hdr(&ip);
-    printIP(&ip);
+    // printIP(&ip);
 
     if (ip.protocol == IPPROTO_ICMP) {
       struct icmphdr icmp;
       decodeICMP(&icmp, buf + l);
       l += lenICMPHdr();
-      printICMP(&icmp);
+      // printICMP(&icmp);
       replyICMP(&raddr, &vxlan, &eth, &ip, &icmp, DataView(buf + l, n - l));
     } else if (ip.protocol == IPPROTO_TCP) {
       struct tcphdr tcp;
       decodeTCP(&tcp, buf + l);
       l += sizeof(tcp);
-      printTCP(&tcp);
-      forwardTCP(&raddr, &ip, &tcp, DataView(buf + l, n - l));
+      // printTCP(&tcp);
+
+      TcpSession sess;
+      memcpy(&sess.dmac, hwAddr, ETH_ALEN);
+      memcpy(&sess.smac, eth.ether_shost, ETH_ALEN);
+      sess.dip        = ip.daddr;
+      sess.sip        = ip.saddr;
+      sess.dport      = tcp.dest;
+      sess.sport      = tcp.source;
+      sess.vxlan_port = raddr.sin_port;
+      sess.vxlan_ip   = raddr.sin_addr.s_addr;
+
+      forwardTCP(&sess, &raddr, &ip, &tcp, DataView(buf + l, n - l));
     }
   }
 
   fprintf(stderr, "\n");
+}
+
+void backwardTCP(int fd) {
+  char    buf[1600];
+  ssize_t n = read(fd, buf, sizeof(buf));
+  if (n < 0) {
+    fprintf(stderr, "Fail to recvfrom: %s\n", strerror(errno));
+    return;
+  }
+
+  fprintf(stderr, "recv %ld bytes\n", n);
+
+  struct iphdr ip;
+  size_t       l = 0;
+  decodeIPv4(&ip, buf);
+  if (validIPv4(&ip) < 0)
+    return;
+  l += lenIPv4Hdr(&ip);
+  printIP(&ip);
+
+  struct tcphdr tcp;
+  decodeTCP(&tcp, buf + l);
+  printTCP(&tcp);
+
+  l = 0;
+  char            backwardBuf[1600];
+  struct vxlanhdr vxlan;
+  vxlan.flags = 0x8;
+  vxlan.vni   = 3;
+  encodeVxlan(&vxlan, backwardBuf);
+  l += sizeof(struct vxlanhdr);
+
+  TcpTuple tp;
+  tp.dip          = ip.saddr;
+  tp.sip          = ip.daddr;
+  tp.dport        = tcp.source;
+  tp.sport        = tcp.dest;
+  TcpSession sess = sessions[tp];
+
+  struct ether_header eth;
+  memcpy(&eth.ether_shost, &sess.dmac, ETH_ALEN);
+  memcpy(&eth.ether_dhost, &sess.smac, ETH_ALEN);
+  eth.ether_type = ETHERTYPE_IP;
+  encodeEthernet(&eth, backwardBuf + l);
+  l += sizeof(struct ether_header);
+  printEthernet(&eth);
+
+  ip.daddr = sess.sip;
+  ip.saddr = sess.dip;
+  encodeIPv4(&ip, backwardBuf + l, lenIPv4Hdr(&ip));
+  l += lenIPv4Hdr(&ip);
+  printIP(&ip);
+
+  struct tcphdr *th = (struct tcphdr *)(backwardBuf + l);
+  memcpy(backwardBuf + l, buf + lenIPv4Hdr(&ip), n - lenIPv4Hdr(&ip));
+  *th = tcp;
+  encodeTCP(th, &ip.saddr, &ip.daddr, backwardBuf + l, n - lenIPv4Hdr(&ip));
+  l += (n - lenIPv4Hdr(&ip));
+
+  printTCP(&tcp);
+  printTCP(th);
+
+  int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+  if (sockfd < 0) {
+    fprintf(stderr, "Fail to socket: %s\n", strerror(errno));
+    return;
+  }
+
+  struct sockaddr_in sin;
+  memset(&sin, 0, sizeof(sin));
+  sin.sin_family      = AF_INET;
+  sin.sin_addr.s_addr = sess.vxlan_ip;
+  sin.sin_port        = htons(4789);
+
+  if (sendto(sockfd, backwardBuf, l, 0, (struct sockaddr *)&sin, sizeof(sin)) <
+      0) {
+    fprintf(stderr, "Fail to sendto vxlan socket: %s\n", strerror(errno));
+    return;
+  }
 }
 
 int main() {
@@ -312,9 +505,22 @@ int main() {
     return -1;
   }
 
+  vxproxy::Route route("test_vxproxy");
+  if (!route.ok()) {
+    fprintf(stderr, "Fail to new route: %s\n", strerror(errno));
+    return -1;
+  }
+
+  route.addHost("10.0.0.3");
+  route.setTunRecvHandler(backwardTCP);
+
+  std::thread t([&]() { route.loop(); });
+
   Poll p;
   p.addReadableEvent(sockfd, handleVxlan);
   p.loop();
+
+  t.join();
 
   return 0;
 }

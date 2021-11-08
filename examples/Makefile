@@ -1,6 +1,6 @@
 CXX = g++
 CXXFLAGS = -std=c++11 -march=native -O0 -g -Wall -Werror -I../include
-LDFLAGS = -static
+LDFLAGS = -static -lpthread
 
 SRCS = \
 	TunTap.cpp \

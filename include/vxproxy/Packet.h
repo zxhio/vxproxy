@@ -146,8 +146,7 @@ static inline void decodeTCP(struct tcphdr *tcp, const char *data) {
 }
 
 static inline void encodeTCP(const struct tcphdr *tcp, const uint32_t *saddr,
-                             const uint32_t *daddr, const char *data,
-                             size_t n) {
+                             const uint32_t *daddr, char *data, size_t n) {
   struct tcphdr *h = (struct tcphdr *)data;
   memcpy(h, tcp, sizeof(struct tcphdr));
   h->source  = htons(tcp->source);
