@@ -33,7 +33,7 @@ static inline uint32_t sum(const void *data, size_t n, uint32_t csum) {
   }
 
   if (n)
-    csum += *(const uint8_t *)p;
+    csum += *(const uint8_t *)p << 8;
 
   while (csum >> 16)
     csum = (csum & 0xFFFF) + (csum >> 16);
