@@ -5,6 +5,7 @@
 !include/
 !examples/
 !examples/Makefile
+!tests/Makefile
 
 !*.h
 !*.cpp
