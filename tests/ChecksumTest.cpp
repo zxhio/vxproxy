@@ -20,16 +20,16 @@ static uint16_t checkPodData(const std::initializer_list<uint8_t> &l) {
 }
 
 void Test_checksum() {
-  TEST_INT_EQ(65535, checkPodData({0}));
-  TEST_INT_EQ(65279, checkPodData({1}));
-  TEST_INT_EQ(65024, checkPodData({1, 255}));
-  TEST_INT_EQ(65279, checkPodData({1, 255, 255}));
-  TEST_INT_EQ(65024, checkPodData({1, 255, 255, 255}));
-  TEST_INT_EQ(0, checkPodData({255, 255, 255, 255}));
-  TEST_INT_EQ(255, checkPodData({255, 255, 255, 255, 255}));
-  TEST_INT_EQ(0, checkPodData({255, 255, 255, 255, 255, 255}));
-  TEST_INT_EQ(59115, checkPodData({1, 2, 3, 4, 5, 6, 7, 8, 9}));
-  TEST_INT_EQ(19231, checkPodData({12, 23, 34, 45, 56, 67, 78, 89}));
+  TEST_NUM_EQ(65535, checkPodData({0}));
+  TEST_NUM_EQ(65279, checkPodData({1}));
+  TEST_NUM_EQ(65024, checkPodData({1, 255}));
+  TEST_NUM_EQ(65279, checkPodData({1, 255, 255}));
+  TEST_NUM_EQ(65024, checkPodData({1, 255, 255, 255}));
+  TEST_NUM_EQ(0, checkPodData({255, 255, 255, 255}));
+  TEST_NUM_EQ(255, checkPodData({255, 255, 255, 255, 255}));
+  TEST_NUM_EQ(0, checkPodData({255, 255, 255, 255, 255, 255}));
+  TEST_NUM_EQ(59115, checkPodData({1, 2, 3, 4, 5, 6, 7, 8, 9}));
+  TEST_NUM_EQ(19231, checkPodData({12, 23, 34, 45, 56, 67, 78, 89}));
 }
 
 static uint16_t checkTCP(const std::string &sip, const std::string dip,
@@ -76,14 +76,14 @@ static uint16_t checkTCP(const std::string &sip, const std::string dip,
 }
 
 void Test_checksum_tcp() {
-  TEST_INT_EQ(0x1f63,
+  TEST_NUM_EQ(0x1f63,
               checkTCP("10.0.0.3", "10.0.0.2", 43562, 8000, "zengxianhui\n"));
-  TEST_INT_EQ(0x3e53,
+  TEST_NUM_EQ(0x3e53,
               checkTCP("10.0.0.3", "10.0.0.2", 43562, 80, "zengxianhui\n"));
-  TEST_INT_EQ(0xf93f, checkTCP("10.0.0.3", "10.0.0.2", 41202, 80, "zxh"));
-  TEST_INT_EQ(0xf93f, checkTCP("10.0.0.3", "10.0.0.2", 41202, 80, "zxh"));
-  TEST_INT_EQ(0x2463, checkTCP("192.168.30.55", "10.0.0.2", 41202, 80, "zxh"));
-  TEST_INT_EQ(0xb3c0, checkTCP("192.168.30.55", "10.0.0.2", 41202, 8086,
+  TEST_NUM_EQ(0xf93f, checkTCP("10.0.0.3", "10.0.0.2", 41202, 80, "zxh"));
+  TEST_NUM_EQ(0xf93f, checkTCP("10.0.0.3", "10.0.0.2", 41202, 80, "zxh"));
+  TEST_NUM_EQ(0x2463, checkTCP("192.168.30.55", "10.0.0.2", 41202, 80, "zxh"));
+  TEST_NUM_EQ(0xb3c0, checkTCP("192.168.30.55", "10.0.0.2", 41202, 8086,
                                "the checksum test routine."));
 }
 

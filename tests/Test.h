@@ -9,33 +9,48 @@
 
 #pragma once
 
-#include <stdio.h>
-
+#include <iostream>
 #include <string>
 
 static int test_count = 0;
 static int test_pass  = 0;
 
-#define EQ(equality, expect, actual, fmt)                                      \
-  do {                                                                         \
-    test_count++;                                                              \
-    if (equality)                                                              \
-      test_pass++;                                                             \
-    else {                                                                     \
-      fprintf(stderr, "%s:%d: expect: '" fmt "' actual: '" fmt "'\n",          \
-              __FILE__, __LINE__, expect, actual);                             \
-    }                                                                          \
-  } while (0)
+template <typename T, typename U,
+          typename std::enable_if<std::is_integral<T>::value ||
+                                      std::is_floating_point<T>::value ||
+                                      std::is_convertible<T, U>::value,
+                                  T>::type = 0>
+static inline void eq_num(const std::string &file, int line, bool equality,
+                          T expect, U actual) {
+  test_count++;
+  if (equality)
+    test_pass++;
+  else
+    std::cerr << file << ":" << line << ": expect: '" << expect << "' actual: '"
+              << actual << std::endl;
+}
 
-#define TEST_INT_EQ(expect, actual) EQ(expect == actual, expect, actual, "%d")
+template <typename T,
+          typename std::enable_if<std::is_convertible<T, std::string>::value,
+                                  T>::type = nullptr>
+static inline void eq_char(const std::string &file, int line, bool equality,
+                           T expect, T actual) {
+  test_count++;
+  if (equality)
+    test_pass++;
+  else
+    std::cerr << file << ":" << line << ": expect: '" << expect << "' actual: '"
+              << actual << std::endl;
+}
 
-#define TEST_CHAR_EQ(expect, actual) EQ(expect == actual, expect, actual, "%c")
+#define TEST_NUM_EQ(expect, actual)                                            \
+  eq_num(__FILE__, __LINE__, expect == actual, expect, actual)
 
 #define TEST_STRING_EQ(expect, actual)                                         \
   do {                                                                         \
     std::string e(expect);                                                     \
     std::string a(actual);                                                     \
-    EQ(a.compare(e) == 0, a.c_str(), e.c_str(), "%s");                         \
+    eq_char(__FILE__, __LINE__, a.compare(e) == 0, expect, actual);            \
   } while (0)
 
 #define PRINT_PASS_RATE()                                                      \
