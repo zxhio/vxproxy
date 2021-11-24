@@ -10,6 +10,7 @@
 #pragma once
 
 #include <iostream>
+
 #include <string>
 
 static int test_count = 0;
@@ -30,18 +31,15 @@ static inline void eq_num(const std::string &file, int line, bool equality,
               << actual << std::endl;
 }
 
-template <typename T,
-          typename std::enable_if<std::is_convertible<T, std::string>::value,
-                                  T>::type = nullptr>
-static inline void eq_char(const std::string &file, int line, bool equality,
-                           T expect, T actual) {
-  test_count++;
-  if (equality)
-    test_pass++;
-  else
-    std::cerr << file << ":" << line << ": expect: '" << expect << "' actual: '"
-              << actual << std::endl;
-}
+#define EQ_STRING(file, line, equality, expect, actual)                        \
+  do {                                                                         \
+    test_count++;                                                              \
+    if (equality)                                                              \
+      test_pass++;                                                             \
+    else                                                                       \
+      std::cerr << file << ":" << line << ": expect: '" << expect              \
+                << "' actual: '" << actual << std::endl;                       \
+  } while (0)
 
 #define TEST_NUM_EQ(expect, actual)                                            \
   eq_num(__FILE__, __LINE__, expect == actual, expect, actual)
@@ -50,7 +48,7 @@ static inline void eq_char(const std::string &file, int line, bool equality,
   do {                                                                         \
     std::string e(expect);                                                     \
     std::string a(actual);                                                     \
-    eq_char(__FILE__, __LINE__, a.compare(e) == 0, expect, actual);            \
+    EQ_STRING(__FILE__, __LINE__, a.compare(e) == 0, e, a);                    \
   } while (0)
 
 #define PRINT_PASS_RATE()                                                      \
