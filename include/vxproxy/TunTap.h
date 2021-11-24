@@ -51,6 +51,26 @@ static inline int setupTunTap(int sockfd, const char *name) {
   return ioctl(sockfd, SIOCSIFFLAGS, &ifr);
 }
 
+static inline int createAndSetupTunTap(int mode, const char *name) {
+  int fd = createTunTap(mode, name);
+  if (fd < 0)
+    return -1;
+
+  int sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+  if (sockfd < 0) {
+    close(fd);
+    return -1;
+  }
+
+  if (setupTunTap(sockfd, name) < 0) {
+    close(fd);
+    close(sockfd);
+    return -1;
+  }
+
+  return fd;
+}
+
 static inline int addAddrTunTap(int sockfd, const char *name,
                                 struct sockaddr_in *addr) {
   struct ifreq ifr;

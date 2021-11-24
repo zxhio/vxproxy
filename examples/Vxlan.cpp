@@ -35,11 +35,11 @@ enum LayerDepth {
   LD_ICMP  = 3
 };
 
-char hwAddr[ETH_ALEN] = {52, 54, 0, 4, 65, 14};
+u_char hwAddr[ETH_ALEN] = {52, 54, 0, 4, 65, 14};
 
 struct TcpSession {
-  char     smac[ETH_ALEN];
-  char     dmac[ETH_ALEN];
+  u_char   smac[ETH_ALEN];
+  u_char   dmac[ETH_ALEN];
   uint16_t sport;
   uint16_t dport;
   uint32_t sip;
@@ -161,7 +161,7 @@ void printTCP(const struct tcphdr *tcp) {
 
 void replyARP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
               const struct ether_header *eth, const struct ether_arp *arp) {
-  char replyBuf[1500];
+  u_char replyBuf[1500];
 
   struct vxlanhdr vxlan1 = *vxlan;
   encodeVxlan(&vxlan1, replyBuf);
@@ -194,7 +194,7 @@ void replyARP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
 void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
                const struct ether_header *eth, const struct iphdr *ip,
                const struct icmphdr *icmp, DataView payload) {
-  char   replyBuf[1500];
+  u_char replyBuf[1500];
   size_t len = 0;
 
   struct vxlanhdr vxlan1 = *vxlan;
@@ -216,9 +216,9 @@ void replyICMP(struct sockaddr_in *addr, const struct vxlanhdr *vxlan,
 
   struct icmphdr icmp1 = *icmp;
   icmp1.type           = ICMP_ECHOREPLY;
-  memcpy(replyBuf + len + sizeof(icmp1), payload.data, payload.len);
-  encodeICMP(&icmp1, replyBuf + len, lenICMPHdr() + payload.len);
-  len += lenICMPHdr() + payload.len;
+  memcpy(replyBuf + len + sizeof(icmp1), payload.data(), payload.size());
+  encodeICMP(&icmp1, replyBuf + len, lenICMPHdr() + payload.size());
+  len += lenICMPHdr() + payload.size();
 
   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0) {
@@ -278,7 +278,7 @@ void forwardTCP(TcpSession *sess, struct sockaddr_in *addr,
                 const struct iphdr *ip, const struct tcphdr *tcp,
                 DataView payload) {
 
-  char   replyBuf[1600];
+  u_char replyBuf[1600];
   size_t len = 0;
 
   struct iphdr ip1 = *ip;
@@ -292,11 +292,12 @@ void forwardTCP(TcpSession *sess, struct sockaddr_in *addr,
 
   struct tcphdr *tcp1 = (struct tcphdr *)(replyBuf + len);
   *tcp1               = *tcp;
-  memcpy(replyBuf + len + sizeof(struct tcphdr), payload.data, payload.len);
-  set_tcp_mss(tcp1, sizeof(struct tcphdr) + payload.len);
+  memcpy(replyBuf + len + sizeof(struct tcphdr), payload.data(),
+         payload.size());
+  set_tcp_mss(tcp1, sizeof(struct tcphdr) + payload.size());
   encodeTCP(tcp1, &ip1.saddr, &ip1.daddr, replyBuf + len,
-            sizeof(struct tcphdr) + payload.len);
-  len += sizeof(struct tcphdr) + payload.len;
+            sizeof(struct tcphdr) + payload.size());
+  len += sizeof(struct tcphdr) + payload.size();
 
   struct sockaddr_in sin;
   memset(&sin, 0, sizeof(sin));
@@ -328,7 +329,7 @@ void forwardTCP(TcpSession *sess, struct sockaddr_in *addr,
 }
 
 void handleVxlan(int fd) {
-  char               buf[1500];
+  u_char             buf[1500];
   struct sockaddr_in raddr;
   socklen_t          len = sizeof(raddr);
   ssize_t            n =
@@ -397,7 +398,7 @@ void handleVxlan(int fd) {
 }
 
 void backwardTCP(int fd) {
-  char    buf[1600];
+  u_char  buf[1600];
   ssize_t n = read(fd, buf, sizeof(buf));
   if (n < 0) {
     fprintf(stderr, "Fail to recvfrom: %s\n", strerror(errno));
@@ -419,7 +420,7 @@ void backwardTCP(int fd) {
   printTCP(&tcp);
 
   l = 0;
-  char            backwardBuf[1600];
+  u_char          backwardBuf[1600];
   struct vxlanhdr vxlan;
   vxlan.flags = 0x8;
   vxlan.vni   = 3;

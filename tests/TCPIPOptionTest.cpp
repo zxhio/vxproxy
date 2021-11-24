@@ -24,7 +24,7 @@ void Test_TCPIPOption_Decode() {
   };
 
   std::vector<TCPIPOption> opt_list =
-      decodeTCPIPOptions((const char *)data.begin(), data.size());
+      decodeTCPIPOptions(data.begin(), data.size());
 
   TEST_NUM_EQ(5, opt_list.size());
 
@@ -60,13 +60,13 @@ void Test_TCPIPOption_Encode() {
   };
 
   std::vector<TCPIPOption> opt_list =
-      decodeTCPIPOptions((const char *)data.begin(), data.size());
+      decodeTCPIPOptions(data.begin(), data.size());
 
-  char buf[data.size()];
+  uint8_t buf[data.size()];
   std::fill(buf, buf + sizeof(buf), 0);
   encodeTCPIPOptions(opt_list, buf);
 
-  TEST_STRING_EQ((const char *)data.begin(), buf);
+  TEST_STRING_EQ((const char *)data.begin(), (const char *)buf);
 }
 
 int main() {

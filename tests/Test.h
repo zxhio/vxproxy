@@ -31,7 +31,7 @@ static inline void eq_num(const std::string &file, int line, bool equality,
               << actual << std::endl;
 }
 
-#define EQ_STRING(file, line, equality, expect, actual)                        \
+#define EQ(file, line, equality, expect, actual)                               \
   do {                                                                         \
     test_count++;                                                              \
     if (equality)                                                              \
@@ -48,7 +48,7 @@ static inline void eq_num(const std::string &file, int line, bool equality,
   do {                                                                         \
     std::string e(expect);                                                     \
     std::string a(actual);                                                     \
-    EQ_STRING(__FILE__, __LINE__, a.compare(e) == 0, e, a);                    \
+    EQ(__FILE__, __LINE__, a.compare(e) == 0, e, a);                           \
   } while (0)
 
 #define PRINT_PASS_RATE()                                                      \

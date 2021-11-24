@@ -9,15 +9,15 @@
 
 #pragma once
 
+#include <functional>
 #include <map>
-#include <sys/poll.h>
 #include <vector>
 
-#include <poll.h>
+#include <sys/poll.h>
 
 namespace vxproxy {
 
-using EventHandleFunc = void (*)(int);
+using EventHandleFunc = std::function<void(int)>;
 
 struct Event {
   struct pollfd   pfd;

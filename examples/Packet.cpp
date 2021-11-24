@@ -23,7 +23,7 @@ void printIndent(int w) {
     fprintf(stderr, "  ");
 }
 
-void handleTCP(const char *tcpdata, size_t tcplen, const uint32_t *saddr,
+void handleTCP(const u_char *tcpdata, size_t tcplen, const uint32_t *saddr,
                const uint32_t *daddr) {
   TCPPacket tcp(tcpdata, tcplen, saddr, daddr);
   if (tcp.decode() < 0)
@@ -31,7 +31,7 @@ void handleTCP(const char *tcpdata, size_t tcplen, const uint32_t *saddr,
 
   struct tcphdr th = tcp.header();
 
-  char           checkbuf[80];
+  u_char           checkbuf[80];
   struct tcphdr *checktcp = (struct tcphdr *)checkbuf;
   memcpy(checktcp, tcpdata, tcplen);
   checktcp->check = 0;
@@ -43,7 +43,7 @@ void handleTCP(const char *tcpdata, size_t tcplen, const uint32_t *saddr,
           "sport=%d, dport=%d, seq=%u, ack_seq=%u, checksum origin="
           "0x%x recacl=0x%x, payload_len=%zu",
           th.source, th.dest, th.seq, th.ack_seq, th.check,
-          checksumTCP(checktcp, tcplen, saddr, daddr), tcp.payload.len);
+          checksumTCP(checktcp, tcplen, saddr, daddr), tcp.payload.size());
   for (const auto &opt : tcp.options()) {
     fprintf(stderr, "\n");
     printIndent(LD_TCP + 1);
@@ -52,7 +52,7 @@ void handleTCP(const char *tcpdata, size_t tcplen, const uint32_t *saddr,
   fprintf(stderr, "\n");
 }
 
-void handleICMP(const char *icmpdata, size_t icmplen) {
+void handleICMP(const u_char *icmpdata, size_t icmplen) {
   ICMPPacket icmp(icmpdata, icmplen);
   icmp.decode();
 
@@ -72,8 +72,8 @@ void handleICMP(const char *icmpdata, size_t icmplen) {
   fprintf(stderr, "\n");
 }
 
-void reply(int fd, char *data, size_t n) {
-  char         replyBuf[1500];
+void reply(int fd, u_char *data, size_t n) {
+  u_char         replyBuf[1500];
   struct iphdr iph;
   decodeIPv4(&iph, data);
 
@@ -97,7 +97,7 @@ void reply(int fd, char *data, size_t n) {
 }
 
 void readTun(int fd) {
-  char buf[256];
+  u_char buf[256];
   memset(buf, 0, sizeof(buf));
 
   ssize_t n = read(fd, buf, sizeof(buf));
@@ -134,10 +134,10 @@ void readTun(int fd) {
 
   switch (iph.protocol) {
   case IPPROTO_TCP:
-    handleTCP(ip.payload.data, ip.payload.len, &iph.saddr, &iph.daddr);
+    handleTCP(ip.payload.data(), ip.payload.size(), &iph.saddr, &iph.daddr);
     break;
   case IPPROTO_ICMP:
-    handleICMP(ip.payload.data, ip.payload.len);
+    handleICMP(ip.payload.data(), ip.payload.size());
     reply(fd, buf, n);
     break;
   default:;

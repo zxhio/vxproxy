@@ -32,13 +32,13 @@ struct vxlanhdr {
   uint32_t reserved2 : 8;
 };
 
-static inline void decodeVxlan(struct vxlanhdr *vxlan, const char *data) {
-  char id[4]   = {0, data[4], data[5], data[6]};
+static inline void decodeVxlan(struct vxlanhdr *vxlan, const u_char *data) {
+  u_char id[4] = {0, data[4], data[5], data[6]};
   vxlan->flags = *(uint8_t *)data;
   vxlan->vni   = ntohl(*(uint32_t *)id);
 }
 
-static inline void encodeVxlan(const struct vxlanhdr *vxlan, char *data) {
+static inline void encodeVxlan(const struct vxlanhdr *vxlan, u_char *data) {
   uint8_t id[4];
   *(uint32_t *)id = htonl(vxlan->vni);
 

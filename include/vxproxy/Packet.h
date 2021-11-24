@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "DataView.h"
+
 #include <string>
 #include <vector>
 
@@ -49,10 +51,10 @@ static inline uint16_t checksum(const void *data, size_t n) {
   return checksum(data, n, 0);
 }
 
-static inline uint16_t checksumTCP(const void *tcph, size_t n,
+static inline uint16_t checksumTCP(const void *data, size_t n,
                                    const uint32_t *saddr,
                                    const uint32_t *daddr) {
-  char pseudo[12];
+  uint8_t pseudo[12];
 
   memcpy(pseudo, saddr, 4);
   memcpy(pseudo + 4, daddr, 4);
@@ -61,17 +63,19 @@ static inline uint16_t checksumTCP(const void *tcph, size_t n,
   pseudo[10] = (n >> 8) & 0xFF;
   pseudo[11] = (n & 0xFF);
 
-  return checksum(tcph, n, sum(pseudo, sizeof(pseudo), 0));
+  return checksum(data, n, sum(pseudo, sizeof(pseudo), 0));
 }
 
-static inline void decodeEthernet(struct ether_header *eth, const char *data) {
+static inline void decodeEthernet(struct ether_header *eth,
+                                  const u_char *       data) {
   struct ether_header *h = (struct ether_header *)data;
   memcpy(eth->ether_dhost, h->ether_dhost, ETH_ALEN);
   memcpy(eth->ether_shost, h->ether_shost, ETH_ALEN);
   eth->ether_type = ntohs(h->ether_type);
 }
 
-static inline void encodeEthernet(const struct ether_header *eth, char *data) {
+static inline void encodeEthernet(const struct ether_header *eth,
+                                  u_char *                   data) {
   struct ether_header *h = (struct ether_header *)data;
   memcpy(h->ether_dhost, eth->ether_dhost, ETH_ALEN);
   memcpy(h->ether_shost, eth->ether_shost, ETH_ALEN);
@@ -82,7 +86,7 @@ static inline constexpr size_t lenEthernetHdr() {
   return sizeof(struct ether_header);
 }
 
-static inline void decodeARP(struct ether_arp *arp, const char *data) {
+static inline void decodeARP(struct ether_arp *arp, const u_char *data) {
   struct ether_arp *h = (struct ether_arp *)data;
   memcpy(arp, h, sizeof(struct ether_arp));
   arp->ea_hdr.ar_hrd = ntohs(h->ea_hdr.ar_hrd);
@@ -90,7 +94,7 @@ static inline void decodeARP(struct ether_arp *arp, const char *data) {
   arp->ea_hdr.ar_op  = ntohs(h->ea_hdr.ar_op);
 }
 
-static inline void encodeARP(const struct ether_arp *arp, char *data) {
+static inline void encodeARP(const struct ether_arp *arp, u_char *data) {
   struct ether_arp *h = (struct ether_arp *)data;
   memcpy(h, arp, sizeof(struct ether_arp));
   h->ea_hdr.ar_hrd = htons(arp->ea_hdr.ar_hrd);
@@ -100,7 +104,7 @@ static inline void encodeARP(const struct ether_arp *arp, char *data) {
 
 static inline constexpr size_t lenARP() { return sizeof(struct ether_arp); }
 
-static inline void decodeIPv4(struct iphdr *ip, const char *data) {
+static inline void decodeIPv4(struct iphdr *ip, const u_char *data) {
   struct iphdr *h = (struct iphdr *)data;
   memcpy(ip, h, sizeof(struct iphdr));
   ip->tot_len  = ntohs(h->tot_len);
@@ -109,7 +113,7 @@ static inline void decodeIPv4(struct iphdr *ip, const char *data) {
   ip->check    = ntohs(h->check);
 }
 
-static inline void encodeIPv4(const struct iphdr *ip, char *data, size_t n) {
+static inline void encodeIPv4(const struct iphdr *ip, u_char *data, size_t n) {
   struct iphdr *h = (struct iphdr *)data;
   memcpy(h, ip, sizeof(struct iphdr));
   h->tot_len  = htons(ip->tot_len);
@@ -133,7 +137,7 @@ static inline int validIPv4(const struct iphdr *ip) {
   return 0;
 }
 
-static inline void decodeTCP(struct tcphdr *tcp, const char *data) {
+static inline void decodeTCP(struct tcphdr *tcp, const u_char *data) {
   struct tcphdr *h = (struct tcphdr *)data;
   memcpy(tcp, h, sizeof(struct tcphdr));
   tcp->source  = ntohs(h->source);
@@ -146,7 +150,7 @@ static inline void decodeTCP(struct tcphdr *tcp, const char *data) {
 }
 
 static inline void encodeTCP(const struct tcphdr *tcp, const uint32_t *saddr,
-                             const uint32_t *daddr, char *data, size_t n) {
+                             const uint32_t *daddr, u_char *data, size_t n) {
   struct tcphdr *h = (struct tcphdr *)data;
   memcpy(h, tcp, sizeof(struct tcphdr));
   h->source  = htons(tcp->source);
@@ -156,14 +160,18 @@ static inline void encodeTCP(const struct tcphdr *tcp, const uint32_t *saddr,
   h->window  = htons(tcp->window);
   h->urg_ptr = htons(tcp->urg_ptr);
   h->check   = 0;
-  h->check   = htons(checksumTCP(tcp, n, saddr, daddr));
+  h->check   = htons(checksumTCP(data, n, saddr, daddr));
 }
 
 static inline size_t lenTCPHdr(const struct tcphdr *tcp) {
   return tcp->doff * 4;
 }
 
-static inline void decodeICMP(struct icmphdr *icmp, const char *data) {
+static inline size_t lenTCPOptions(const struct tcphdr *tcp) {
+  return lenTCPHdr(tcp) - sizeof(struct tcphdr);
+}
+
+static inline void decodeICMP(struct icmphdr *icmp, const u_char *data) {
   struct icmphdr *h      = (struct icmphdr *)data;
   icmp->type             = h->type;
   icmp->code             = h->code;
@@ -172,7 +180,7 @@ static inline void decodeICMP(struct icmphdr *icmp, const char *data) {
   icmp->un.echo.sequence = ntohs(h->un.echo.sequence);
 }
 
-static inline void encodeICMP(const struct icmphdr *icmp, const char *data,
+static inline void encodeICMP(const struct icmphdr *icmp, const u_char *data,
                               size_t n) {
   struct icmphdr *h   = (struct icmphdr *)data;
   h->type             = icmp->type;
@@ -185,45 +193,46 @@ static inline void encodeICMP(const struct icmphdr *icmp, const char *data,
 
 static inline constexpr size_t lenICMPHdr() { return sizeof(struct icmphdr); }
 
-struct DataView {
-  DataView() : DataView(NULL, 0) {}
-  DataView(const char *data, size_t n) : data(data), len(n) {}
-
-  const char *data;
-  size_t      len;
+enum TCPIPOptionKind : u_char {
+  OK_EndOfList = 0,
+  OK_Nop,
+  OK_Mss,
+  OK_WindowScale,
+  OK_SACKPermitted,
+  OK_Timestamps = 8,
 };
-
-enum OptionKind : uint8_t { EndOfList = 0, NoOperation };
 
 struct TCPIPOption {
-  TCPIPOption(uint8_t k, uint8_t l) : kind(k), length(l) {}
+  TCPIPOption(TCPIPOptionKind k, u_char l) : kind(k), length(l) {}
+  TCPIPOption(TCPIPOptionKind k, u_char l, const DataView &v)
+      : kind(k), length(l), value(v) {}
 
-  uint8_t  kind;
-  uint8_t  length;
-  DataView data;
+  TCPIPOptionKind kind;
+  u_char          length;
+  DataView        value;
 };
 
-static inline std::vector<TCPIPOption> decodeTCPIPOptions(const char *data,
-                                                          size_t      n) {
+static inline std::vector<TCPIPOption> decodeTCPIPOptions(const u_char *data,
+                                                          size_t        n) {
   std::vector<TCPIPOption> options;
   if (n == 0)
     return std::vector<TCPIPOption>();
 
-  const char *p = data;
+  const u_char *p = data;
 
   bool nol = false;
   while (p != data + n && !nol) {
-    options.push_back(TCPIPOption(*(uint8_t *)p, 1));
+    options.push_back(TCPIPOption(*(TCPIPOptionKind *)p, 1));
     auto &opt = options.back();
     switch (opt.kind) {
-    case OptionKind::EndOfList:
+    case TCPIPOptionKind::OK_EndOfList:
       nol = true;
       break;
-    case OptionKind::NoOperation:
+    case TCPIPOptionKind::OK_Nop:
       break;
     default:
-      opt.length = *(uint8_t *)(p + 1);
-      opt.data   = DataView(p + 2, opt.length - 2);
+      opt.length = *(p + 1);
+      opt.value  = DataView(p + 2, opt.length - 2);
     }
     p += opt.length;
   }
@@ -231,17 +240,54 @@ static inline std::vector<TCPIPOption> decodeTCPIPOptions(const char *data,
   return options;
 }
 
+static inline void encodeTCPIPOptions(const std::vector<TCPIPOption> &options,
+                                      u_char *                        buf) {
+  for (const auto &opt : options) {
+    *(TCPIPOptionKind *)buf++ = opt.kind;
+    switch (opt.kind) {
+    case TCPIPOptionKind::OK_EndOfList:
+    case TCPIPOptionKind::OK_Nop:
+      break;
+    default:
+      // TODO, fix option length.
+      *buf++ = opt.length;
+      memcpy(buf, opt.value.data(), opt.value.size());
+      buf += opt.value.size();
+    }
+  }
+}
+
+static inline void setTCPIPOption(std::vector<TCPIPOption> &options,
+                                  TCPIPOption               option) {
+  for (auto &opt : options) {
+    if (opt.kind == option.kind) {
+      opt.value = option.value;
+    }
+  }
+}
+
+static inline TCPIPOption
+getTCPIPOption(const std::vector<TCPIPOption> &options, TCPIPOptionKind kind) {
+  for (const auto &opt : options) {
+    if (opt.kind == kind) {
+      return opt;
+    }
+  }
+
+  return TCPIPOption(TCPIPOptionKind::OK_EndOfList, 0, DataView());
+}
+
 // Basic packet interface.
 // TODO, define packer encode/decode error code.
 struct Packet {
-  Packet(const char *data, size_t n) : content(data, n), payload(NULL, 0) {}
+  Packet(const u_char *data, size_t n) : content(data, n), payload(NULL, 0) {}
 
-  virtual int    encode(char *to, size_t len) const = 0;
-  virtual int    decode()                           = 0;
-  virtual size_t headerLen() const                  = 0;
+  virtual int    encode(u_char *to, size_t len) const = 0;
+  virtual int    decode()                             = 0;
+  virtual size_t headerLen() const                    = 0;
 
-  const char *data() const { return content.data; }
-  size_t      len() const { return content.len; }
+  const u_char *data() const { return content.data(); }
+  size_t        len() const { return content.size(); }
 
   // DataView payload() const { return payload; }
 
@@ -251,9 +297,9 @@ struct Packet {
 
 class EthernetPacket : public Packet {
 public:
-  EthernetPacket(const char *data, size_t n) : Packet(data, n) {}
+  EthernetPacket(const u_char *data, size_t n) : Packet(data, n) {}
 
-  virtual int encode(char *to, size_t len) const {
+  virtual int encode(u_char *to, size_t len) const {
     if (len < sizeof(struct ether_header))
       return -1;
 
@@ -285,9 +331,9 @@ private:
 
 class IPv4Packet : public Packet {
 public:
-  IPv4Packet(const char *data, size_t n) : Packet(data, n) {}
+  IPv4Packet(const u_char *data, size_t n) : Packet(data, n) {}
 
-  virtual int encode(char *to, size_t len) const {
+  virtual int encode(u_char *to, size_t len) const {
     encodeIPv4(&ip_, to, len);
     return 0;
   }
@@ -324,11 +370,11 @@ private:
 
 class TCPPacket : public Packet {
 public:
-  TCPPacket(const char *data, size_t n, const uint32_t *saddr,
+  TCPPacket(const u_char *data, size_t n, const uint32_t *saddr,
             const uint32_t *daddr)
       : Packet(data, n), saddr_(saddr), daddr_(daddr) {}
 
-  virtual int encode(char *to, size_t len) const {
+  virtual int encode(u_char *to, size_t len) const {
     encodeTCP(&tcp_, saddr_, daddr_, to, len);
     return 0;
   }
@@ -363,9 +409,9 @@ private:
 
 class ICMPPacket : public Packet {
 public:
-  ICMPPacket(const char *data, size_t n) : Packet(data, n) {}
+  ICMPPacket(const u_char *data, size_t n) : Packet(data, n) {}
 
-  virtual int encode(char *to, size_t n) const {
+  virtual int encode(u_char *to, size_t n) const {
     if (n < 8)
       return -1;
 

@@ -4,6 +4,7 @@ LDFLAGS = -static -lpthread
 
 SRCS = \
 	ChecksumTest.cpp \
+	TCPIPOptionTest.cpp \
 
 OBJS = $(patsubst %.cpp, %.o, $(SRCS))
 DEPS = $(patsubst %.cpp, %.d, $(SRCS))
