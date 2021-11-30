@@ -34,7 +34,7 @@ struct vxlanhdr {
 
 static inline void decodeVxlan(struct vxlanhdr *vxlan, const u_char *data) {
   u_char id[4] = {0, data[4], data[5], data[6]};
-  vxlan->flags = *(uint8_t *)data;
+  vxlan->flags = *data;
   vxlan->vni   = ntohl(*(uint32_t *)id);
 }
 
